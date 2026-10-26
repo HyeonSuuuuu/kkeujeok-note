@@ -23,7 +23,13 @@ class Sort
     public bool Manual;   // 사용자가 드래그로 옮긴 것은 AI가 다시 바꾸지 않는다
     public string Day;    // AI가 분류한 날. 날이 바뀌면 급한 정도가 달라지니 다시 분류한다
     public string Due;    // 적힌 날짜(내일까지, 금요일 등)를 AI가 날짜로 바꾼 것. 달력에 쓴다
-    public char Repeat;   // 'D' 매일, 'W' 매주, 'M' 이번 달 (네 칸 대신 체크 목록에 나온다), 0 한 번만
+    public char Repeat;   // 'D' 매일, 'W' 매주, 'M' 이번 달 (네 칸과 체크 목록 둘 다에 나온다), 0 한 번만
+    public string Title;  // 목록에 보일 짧은 이름 (AI가 줄임). 메모 원문은 그대로 둔다
+    public string Places; // 어디에 보일지: T 네 칸, C 달력 (null이면 예전처럼 둘 다). 되풀이하는 일은 체크 목록에 늘 나온다
+
+    // 되풀이하지 않는 일이 어디에도 안 보이면 잃어버리니 네 칸에 둔다
+    public bool InQuad { get { return Places == null || Places.Contains('T') || (Repeat == 0 && !Places.Contains('C')); } }
+    public bool InCalendar { get { return Places == null || Places.Contains('C'); } }
 
     public DateTime? DueDate
     {
@@ -330,7 +336,12 @@ class Kkeujeok : Form
         foreach (string c in context) sb.Append("- ").Append(c).Append('\n');
         sb.Append("\n분류할 줄:\n");
         for (int i = 0; i < todo.Count; i++) sb.Append(i + 1).Append(": ").Append(todo[i]).Append('\n');
-        sb.Append("\n각 줄마다 '번호:칸', 필요하면 L, D/W, @날짜를 그 순서로 붙여 한 줄씩만 답해라. 예: 1:1@2026-10-27  2:2L  3:2D  4:3W  5:2M@2026-10-31  6:0\n다른 말은 쓰지 마라. 파일이나 도구는 쓰지 마라.");
+        sb.Append("할 일 목록에 보일 짧은 이름도 지어 ' | ' 뒤에 붙인다. 핵심 행동만 15자 안팎으로, 날짜·반복 표현(내일까지, 매일 등)은 이미 따로 표시되니 뺀다. 예: '졸업 전까지 영어 회화 자격증 따야함. 매일 공부할 것' → '영어 회화 공부'. 0번 칸이면 이름은 안 붙여도 된다.\n");
+        sb.Append("어디에 보일지도 정해 # 뒤에 붙인다 (되풀이하는 일은 체크 목록에 늘 따로 나온다):\n");
+        sb.Append("T = 할 일 목록(네 칸): 시간을 내서 직접 해야 하는 일 (과제, 공부, 준비, 연락, 보고서 쓰기 등)\n");
+        sb.Append("C = 달력: 날짜가 정해진 것 (마감, 시험, 약속, 회의, 상담 등)\n");
+        sb.Append("약속·회의·상담·시험 보는 것처럼 그 시간에 가기만 하면 되는 일정은 C만 붙인다. 날짜 있는 과제는 TC, 날짜 없는 할 일은 T, 되풀이하는 일은 오늘 해야 할 만큼 중요하면 T, 아니면 아무것도 안 붙여도 된다.\n");
+        sb.Append("\n각 줄마다 '번호:칸', 필요하면 L, D/W/M, @날짜, #보일 곳을 그 순서로 붙이고 ' | 짧은 이름'을 붙여 한 줄씩만 답해라.\n예:\n1:1@2026-10-27#TC | 운영체제 과제 제출\n2:1@2026-10-28#C | 진로 상담\n3:2LD#T | 영어 회화 공부\n4:3W | 주간 보고서 보내기\n5:0\n다른 말은 쓰지 마라. 파일이나 도구는 쓰지 마라.");
         return sb.ToString();
     }
 
@@ -338,9 +349,13 @@ class Kkeujeok : Form
     {
         string output = RunAI(command, Prompt(todo, context));
         var map = new Dictionary<int, Sort>();
-        foreach (Match m in Regex.Matches(output, @"(?m)^\W*(\d+)\s*[:：]\s*([0-4])\s*([LDWM]*)\s*(?:@\s*(\d{4}-\d{2}-\d{2}))?", RegexOptions.IgnoreCase))
+        foreach (Match m in Regex.Matches(output, @"(?m)^\W*(\d+)\s*[:：]\s*([0-4])[ \t]*([LDWM]*)[ \t]*(?:@[ \t]*(\d{4}-\d{2}-\d{2}))?[ \t]*(#[ \t]*[TC]*)?[ \t]*(?:\|[ \t]*([^\r\n|]+))?", RegexOptions.IgnoreCase))
         {
-            var s = new Sort { Q = int.Parse(m.Groups[2].Value), Due = m.Groups[4].Success ? m.Groups[4].Value : null };
+            string title = m.Groups[6].Success ? m.Groups[6].Value.Trim() : "";
+            var s = new Sort { Q = int.Parse(m.Groups[2].Value), Due = m.Groups[4].Success ? m.Groups[4].Value : null,
+                Title = title.Length > 0 ? title : null };
+            // #이 있으면 AI가 보일 곳을 정한 것 (# 뒤가 비면 네 칸·달력 어디에도 안 보임)
+            if (m.Groups[5].Success) s.Places = m.Groups[5].Value.TrimStart('#').Trim().ToUpperInvariant();
             SetFlags(s, m.Groups[3].Value);
             map[int.Parse(m.Groups[1].Value)] = s;
         }
@@ -470,18 +485,23 @@ class Kkeujeok : Form
         // 칸 \t L·D·W (없으면 -) \t a|m \t 분류한 날 \t 날짜 \t 할 일
         foreach (string l in File.ReadAllLines(SortPath, Utf8))
         {
-            string[] p = l.Split(new[] { '\t' }, 6);
+            // 7칸이면 짧은 이름이 들어 있다 (예전 6칸 형식도 읽는다)
+            string[] p = l.Split(new[] { '\t' }, 7);
             int q;
             if (p.Length < 6 || !int.TryParse(p[0], out q) || q < 0 || q > 4) continue;
             var s = new Sort { Q = q, Manual = p[2] == "m", Day = p[3], Due = p[4].Length > 0 ? p[4] : null };
             SetFlags(s, p[1]);
-            Sorts[p[5]] = s;
+            if (p.Length == 7 && p[5].Length > 0) s.Title = p[5];
+            Sorts[p[p.Length - 1]] = s;
         }
     }
 
+    // 예: "LD", "LD/TC" (/ 뒤는 보일 곳)
     static void SetFlags(Sort s, string flags)
     {
         flags = flags.ToUpperInvariant();
+        int slash = flags.IndexOf('/');
+        if (slash >= 0) { s.Places = flags.Substring(slash + 1); flags = flags.Substring(0, slash); }
         s.Long = flags.Contains('L');
         s.Repeat = flags.Contains('D') ? 'D' : flags.Contains('W') ? 'W' : flags.Contains('M') ? 'M' : '\0';
     }
@@ -491,10 +511,12 @@ class Kkeujeok : Form
         var sb = new StringBuilder();
         foreach (var kv in Sorts)
         {
-            string flags = (kv.Value.Long ? "L" : "") + (kv.Value.Repeat != 0 ? kv.Value.Repeat.ToString() : "");
+            string flags = (kv.Value.Long ? "L" : "") + (kv.Value.Repeat != 0 ? kv.Value.Repeat.ToString() : "")
+                + (kv.Value.Places != null ? "/" + kv.Value.Places : "");
             sb.Append(kv.Value.Q).Append('\t').Append(flags.Length > 0 ? flags : "-").Append('\t')
               .Append(kv.Value.Manual ? "m" : "a").Append('\t').Append(kv.Value.Day ?? "").Append('\t')
-              .Append(kv.Value.Due ?? "").Append('\t').Append(kv.Key).Append("\r\n");
+              .Append(kv.Value.Due ?? "").Append('\t').Append((kv.Value.Title ?? "").Replace('\t', ' ')).Append('\t')
+              .Append(kv.Key).Append("\r\n");
         }
         WriteAtomic(SortPath, sb.ToString());
     }
@@ -502,6 +524,9 @@ class Kkeujeok : Form
     // ── 매일·매주 체크 ───────────────────────────────────
 
     public static DateTime WeekStart(DateTime d) { return d.Date.AddDays(-(((int)d.DayOfWeek + 6) % 7)); }   // 월요일
+
+    // 목록에 보일 이름: AI가 지은 짧은 이름, 없으면 메모 원문
+    public string ShortName(string item) { Sort s; return Sorts.TryGetValue(item, out s) && !string.IsNullOrEmpty(s.Title) ? s.Title : item; }
 
     public bool IsRepeat(string item) { Sort s; return Sorts.TryGetValue(item, out s) && s.Repeat != 0; }
 
@@ -541,6 +566,21 @@ class Kkeujeok : Form
         s.Repeat = r;
         s.Manual = true;
         Sorts[item] = s;
+        SaveSorts();
+        Highlight();
+        Changed();
+    }
+
+    // 네 칸(T)·달력(C)에 보일지 사용자가 직접 바꿈 (AI가 다시 안 바꾼다)
+    public void SetPlace(string item, char place, bool show)
+    {
+        Sort s;
+        if (!Sorts.TryGetValue(item, out s)) return;
+        string now = (s.InQuad ? "T" : "") + (s.InCalendar ? "C" : "");
+        now = now.Replace(place.ToString(), "");
+        if (show) now += place;
+        s.Places = now;
+        s.Manual = true;
         SaveSorts();
         Highlight();
         Changed();
@@ -864,13 +904,14 @@ class ListWindow : Form
     readonly CalendarView calendar;
     readonly RoutineView routine;
     readonly LinkLabel undo = new LinkLabel();
+    readonly ToolTip tip = new ToolTip { InitialDelay = 300 };
     readonly Label foot = new Label();
     readonly Label banner = new Label();
     readonly System.Windows.Forms.Timer spin = new System.Windows.Forms.Timer { Interval = 400 };
     bool busy;
     int busyCount, dots;
     readonly LinkLabel quadTab = new LinkLabel(), calTab = new LinkLabel(), checkTab = new LinkLabel();
-    int hidden;
+    int hidden, elsewhere;
     Point dragFrom;
     int dragIndex = -1;
     ListBox dragList;
@@ -928,6 +969,13 @@ class ListWindow : Form
                 DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 26, Tag = q,
             };
             lb.DrawItem += DrawItem;
+            // 짧은 이름으로 보이니, 마우스를 올리면 메모 원문을 보여 준다
+            lb.MouseMove += delegate(object s, MouseEventArgs e) {
+                var l = (ListBox)s;
+                int i = l.IndexFromPoint(e.Location);
+                string text = i >= 0 ? (string)l.Items[i] : "";
+                if (tip.GetToolTip(l) != text) tip.SetToolTip(l, text);
+            };
             lb.MouseDown += delegate(object s, MouseEventArgs e) {
                 var l = (ListBox)s;
                 if (e.Button == MouseButtons.Right)
@@ -1055,6 +1103,19 @@ class ListWindow : Form
             mi.Click += delegate { main.SetRepeat(item, r); };
             m.Items.Add(mi);
         }
+        // 어디에 보일지 직접 바꾸기 (AI가 정한 것을 덮어씀)
+        if (s != null)
+        {
+            m.Items.Add(new ToolStripSeparator());
+            foreach (var opt in new[] { new KeyValuePair<char, string>('T', "할 일 목록(네 칸)에 보이기"), new KeyValuePair<char, string>('C', "달력에 보이기") })
+            {
+                char c = opt.Key;
+                bool on = c == 'T' ? s.InQuad : s.InCalendar;
+                var mi = new ToolStripMenuItem(opt.Value) { Checked = on };
+                mi.Click += delegate { main.SetPlace(item, c, !on); };
+                m.Items.Add(mi);
+            }
+        }
         m.Closed += delegate { at.BeginInvoke((Action)m.Dispose); };
         m.Show(at, p);
     }
@@ -1077,10 +1138,10 @@ class ListWindow : Form
 
     void UpdateFoot()
     {
-        string memo = hidden > 0 ? " · 할 일 아닌 메모 " + hidden + "개는 뺌" : "";
+        string memo = (elsewhere > 0 ? " · 일정 " + elsewhere + "개는 달력·체크에" : "") + (hidden > 0 ? " · 메모 " + hidden + "개는 뺌" : "");
         if (calendar.Visible) foot.Text = "날짜가 적힌 일만 나와요 · 더블클릭하면 끄적노트에서 보기 · 오른쪽 클릭: 끝냄 등";
         else if (routine.Visible) foot.Text = "누르면 체크 · 매일 것은 내일, 매주 것은 다음 주 월요일에 다시 빈칸 · 오른쪽 클릭: 바꾸기";
-        else foot.Text = "드래그로 칸 옮기기 · 더블클릭하면 끝냄 · 오른쪽 클릭: 매일·매주로 등" + memo;
+        else foot.Text = "드래그로 옮기기 · 더블클릭: 끝냄 (☐는 체크) · 오른쪽 클릭: 더 보기" + memo;
         undo.Visible = main.CanUndo;
     }
 
@@ -1089,13 +1150,21 @@ class ListWindow : Form
         var byQ = new List<string>[5];
         for (int q = 0; q <= 4; q++) byQ[q] = new List<string>();
         int repeats = 0, done = 0;
+        elsewhere = 0;
         foreach (string item in main.Items())
         {
             Sort s;
             bool known = main.Sorts.TryGetValue(item, out s);
-            // 매일·매주 하는 일은 네 칸 대신 체크 목록에 나온다
-            if (known && s.Repeat != 0 && s.Q != 0) { repeats++; if (main.DoneOn(item).HasValue) done++; continue; }
-            byQ[known ? s.Q : 4].Add(item);
+            if (!known) { byQ[4].Add(item); continue; }
+            // 매일·매주 하는 일은 체크 목록에 늘 나오고, 네 칸에는 이번에 아직 안 했을 때만 나온다
+            if (s.Repeat != 0 && s.Q != 0)
+            {
+                repeats++;
+                if (main.DoneOn(item).HasValue) { done++; continue; }
+            }
+            // 약속·시험처럼 달력에만 둘 것은 네 칸에서 뺀다
+            if (s.Q != 0 && !s.InQuad) { elsewhere++; continue; }
+            byQ[s.Q].Add(item);
         }
         checkTab.Text = "☑ 체크" + (repeats > 0 ? "  " + done + "/" + repeats : "");
         hidden = byQ[0].Count;
@@ -1125,10 +1194,14 @@ class ListWindow : Form
             e.Graphics.FillRectangle(bg, e.Bounds);
         Sort s;
         bool known = main.Sorts.TryGetValue(item, out s);
-        string mark = !known ? "❔ " : (s.Long ? "⏳ " : "· ");
-        string tail = (!known && busy ? "  (정리 중)" : "") + (known && s.DueDate.HasValue ? "  " + s.DueDate.Value.ToString("M'/'d") : "") + (known && s.Manual ? "  ✋" : "");
+        // 매일·매주·이번 달 하는 일은 체크 칸을 붙이고, 이번에 했으면 흐리게 보여 준다 (더블클릭하면 체크)
+        bool repeat = known && s.Repeat != 0;
+        bool doneNow = repeat && main.DoneOn(item).HasValue;
+        string mark = !known ? "❔ " : repeat ? (doneNow ? "☑ " : "☐ ") : (s.Long ? "⏳ " : "· ");
+        string every = !repeat ? "" : s.Repeat == 'D' ? "  매일" : s.Repeat == 'W' ? "  매주" : "  이번 달";
+        string tail = (!known && busy ? "  (정리 중)" : "") + every + (known && s.DueDate.HasValue ? "  " + s.DueDate.Value.ToString("M'/'d") : "") + (known && s.Manual ? "  ✋" : "");
         var r = new Rectangle(e.Bounds.X + 2, e.Bounds.Y, e.Bounds.Width - 4, e.Bounds.Height);
-        TextRenderer.DrawText(e.Graphics, mark + item + tail, lb.Font, r, Color.FromArgb(43, 43, 43),
+        TextRenderer.DrawText(e.Graphics, mark + main.ShortName(item) + tail, lb.Font, r, doneNow ? Color.FromArgb(160, 150, 120) : Color.FromArgb(43, 43, 43),
             TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
     }
 }
@@ -1177,7 +1250,7 @@ class CalendarView : Control
         foreach (string item in main.Items())
         {
             Sort s;
-            if (!main.Sorts.TryGetValue(item, out s) || s.Q == 0 || !s.DueDate.HasValue) continue;
+            if (!main.Sorts.TryGetValue(item, out s) || s.Q == 0 || !s.DueDate.HasValue || !s.InCalendar) continue;
             List<string> l;
             if (!byDay.TryGetValue(s.DueDate.Value, out l)) byDay[s.DueDate.Value] = l = new List<string>();
             l.Add(item);
@@ -1224,7 +1297,7 @@ class CalendarView : Control
                         }
                         using (var b = new SolidBrush(Quad.Tint[s.Q])) g.FillRectangle(b, rr);
                         using (var b = new SolidBrush(Quad.Ink[s.Q])) g.FillRectangle(b, rr.X, rr.Y, 3, rr.Height);
-                        TextRenderer.DrawText(g, items[i], itemFont, new Rectangle(rr.X + 5, rr.Y, rr.Width - 5, rr.Height), ink,
+                        TextRenderer.DrawText(g, main.ShortName(items[i]), itemFont, new Rectangle(rr.X + 5, rr.Y, rr.Width - 5, rr.Height), ink,
                             TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
                         hits.Add(new KeyValuePair<Rectangle, string>(rr, items[i]));
                         iy += lineH;
@@ -1313,7 +1386,7 @@ class RoutineView : Control
         int x = 16, w = Width - 32, y = 12;
         if (daily.Count == 0 && weekly.Count == 0 && monthly.Count == 0)
         {
-            TextRenderer.DrawText(g, "아직 매일·매주·이번 달 할 일이 없어요.\n\n끄적노트에 \"매일 토익 공부 1시간\", \"매주 보고서 내기\", \"이번 달 안에 건강검진\"처럼 적으면\nAI가 정리할 때 여기로 모아 줘요.\n\n목록에서 오른쪽 클릭 → '매일 하는 일'로 직접 옮길 수도 있어요.",
+            TextRenderer.DrawText(g, "아직 매일·매주·이번 달 할 일이 없어요.\n\n끄적노트에 \"매일 영어 단어 30개\", \"매주 보고서 내기\", \"이번 달 안에 건강검진\"처럼 적으면\nAI가 정리할 때 여기로 모아 줘요.\n\n목록에서 오른쪽 클릭 → '매일 하는 일'로 직접 옮길 수도 있어요.",
                 itemFont, new Rectangle(x, y + 30, w, Height - 60), muted, TextFormatFlags.HorizontalCenter | TextFormatFlags.WordBreak);
             return;
         }
@@ -1362,7 +1435,7 @@ class RoutineView : Control
                 if (due.HasValue && due.Value >= today)
                     tail = (tail.Length > 0 ? tail + " · " : "") + due.Value.ToString("M'/'d") + "까지";
                 int tailW = tail.Length > 0 ? TextRenderer.MeasureText(g, tail, small).Width + 10 : 0;
-                TextRenderer.DrawText(g, item, on.HasValue ? doneFont : itemFont, new Rectangle(row.X + 36, row.Y, row.Width - 44 - tailW, row.Height),
+                TextRenderer.DrawText(g, main.ShortName(item), on.HasValue ? doneFont : itemFont, new Rectangle(row.X + 36, row.Y, row.Width - 44 - tailW, row.Height),
                     on.HasValue ? muted : ink, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
                 if (tail.Length > 0)
                     TextRenderer.DrawText(g, tail, small, new Rectangle(row.Right - tailW - 6, row.Y, tailW, row.Height), on.HasValue ? Green : Color.FromArgb(196, 120, 20),
