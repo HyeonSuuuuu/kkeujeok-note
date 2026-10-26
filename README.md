@@ -10,6 +10,13 @@
 |---|---|---|
 | ![네 칸](docs/list-quad.png) | ![달력](docs/list-calendar.png) | ![체크](docs/list-check.png) |
 
+## 설치
+
+1. [Releases](https://github.com/HyeonSuuuuu/kkeujeok-note/releases/latest)에서 `kkeujeok-note.exe`를 내려받습니다.
+2. 원하는 폴더(예: `문서\끄적노트\`)에 넣고 실행합니다. 메모와 기록은 exe 옆에 저장됩니다.
+3. 처음 실행할 때 "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행**을 누릅니다. 코드 서명을 하지 않은 exe라서 뜨는 경고입니다.
+4. AI 정리를 쓰려면 아래 [AI 설정](#ai-설정)의 CLI 하나를 설치하고 로그인합니다. AI 없이도 메모는 쓸 수 있습니다.
+
 ## 쓰는 법
 
 1. 끄적노트 창에 할 일을 한 줄씩 막 적습니다. 0.5초 동안 입력이 없으면 저장됩니다.
